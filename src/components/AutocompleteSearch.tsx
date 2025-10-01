@@ -1,92 +1,68 @@
-import { createSignal, createEffect, createMemo, Show, For } from "https://esm.sh/solid-js@1.9.9?dev"
+import { createSignal, createEffect, createMemo, Show, For, splitProps } from "https://esm.sh/solid-js@1.9.9?dev"
+import { computeJson } from "../jsx.tsx"
 
-export interface AutocompleteSearchProps {
-    items: string[]
-    placeholder?: string
-    onInput?: (e: InputEvent & { currentTarget: HTMLInputElement; target: Element }) => void
-    onFocus?: () => void
-    onKeyDown?: (e: KeyboardEvent) => void
-    onSubmit?: (item: string) => void
-}
-
-export const AutocompleteSearch = (props: AutocompleteSearchProps) => {
-    const [query, setQuery] = createSignal("")
-    const [selectedIndex, setSelectedIndex] = createSignal(-1)
-    const [showSuggestions, setShowSuggestions] = createSignal(false)
-
-    const filteredItems = createMemo(() => {
-        const q = query().toLowerCase()
-        let result = q ? props.items.filter((item) => item.toLowerCase().includes(q)) : []
-        console.debug(`result is:`, result)
-        return result
-    })
+export const AutocompleteSearch = (props) => {
+    // const [, props] = splitProps(props, [ 'options', 'updateOptions', 'onInput', 'onFocus', 'onKeyDown',])
+    const getFilteredSuggestions = computeJson( () => props.suggestions.filter(item => item.toLowerCase().includes(props.value().toLowerCase())) )
+    const [getSelectedIndex, setSelectedIndex] = createSignal(-1)
     
-    const renderList = createMemo(() => {
-        const filteredItems_ = filteredItems()
-        const showSuggestions_ = showSuggestions()
-        return showSuggestions_ && filteredItems_.length > 0
-    })
-
-    const handleSelect = (item: string) => {
-        setQuery(item)
-        setShowSuggestions(false)
+    const handleSubmit = (item: string) => {
         setSelectedIndex(-1)
         props.onSubmit?.(item)
     }
-
+    
+    // Reset getSelectedIndex when filteredItems changes
+    createEffect(() => {
+        setSelectedIndex(-1)
+    }, [getFilteredSuggestions])
+    
     const handleKeyDown = (e: KeyboardEvent) => {
-        const suggestions = filteredItems()
-        let index = selectedIndex()
-        console.debug(`e is:`,e)
+        let index = getSelectedIndex()
+        const maxIndex = getFilteredSuggestions().length - 1
+        let newIndex
         switch (e.key) {
             case "ArrowDown":
                 e.preventDefault()
-                if (!showSuggestions()) setShowSuggestions(true)
-                if (suggestions.length > 0) {
-                    setSelectedIndex(index < suggestions.length - 1 ? index + 1 : 0)
+                newIndex = index+1
+                if (newIndex > maxIndex) {
+                    newIndex = maxIndex
                 }
+                setSelectedIndex(newIndex)
                 break
             case "ArrowUp":
                 e.preventDefault()
-                if (!showSuggestions()) setShowSuggestions(true)
-                if (suggestions.length > 0) {
-                    setSelectedIndex(index > 0 ? index - 1 : suggestions.length - 1)
+                newIndex = index-1
+                if (newIndex > maxIndex) {
+                    newIndex = maxIndex
                 }
+                if (newIndex <= -1) {
+                    newIndex = -1
+                }
+                setSelectedIndex(newIndex)
                 break
             case "Enter":
-                if (showSuggestions() && index >= 0 && suggestions[index]) {
-                    handleSelect(suggestions[index])
-                    e.preventDefault()
-                } else if (query().trim() !== "") {
-                    props.onSubmit?.(query())
+                if (index > -1 && index <= maxIndex) {
+                    handleSubmit(getFilteredSuggestions()[index])
                 }
                 break
             case "Escape":
-                setShowSuggestions(false)
+                // setShowSuggestions(false)
+                setSelectedIndex(-1)
                 break
         }
     }
-
-    // Reset selectedIndex when filteredItems changes
-    createEffect(() => {
-        setSelectedIndex(-1)
-    }, [filteredItems])
-
+    
     return (
         <div style={{ position: "relative", width: "300px" }}>
             <input
                 {...props}
+                value={props.value}
                 type="text"
-                value={query}
-                placeholder={props.placeholder ?? "Search..."}
                 onInput={(e) => {
-                    setQuery(e.currentTarget.value)
-                    setShowSuggestions(true)
-                    setSelectedIndex(-1)
+                    const query = e.currentTarget.value
                     props.onInput?.(e)
                 }}
                 onFocus={(e) => {
-                    setShowSuggestions(true)
                     props.onFocus?.(e)
                 }}
                 onKeyDown={(e) => {
@@ -102,48 +78,24 @@ export const AutocompleteSearch = (props: AutocompleteSearchProps) => {
                 }}
                 autocomplete="off"
             />
-
-            <Show when={renderList}>
-                <ul
-                    style={{
-                        position: "absolute",
-                        top: "100%",
-                        left: "0",
-                        right: "0",
-                        "background-color": "#fff",
-                        border: "1px solid #ccc",
-                        "border-top": "none",
-                        "max-height": "200px",
-                        overflow: "auto",
-                        margin: 0,
-                        padding: 0,
-                        "list-style": "none",
-                        "z-index": 10,
-                    }}
-                >
-                    <For each={filteredItems}>
-                        {(item, i) =>(
-                            <li
-                                onClick={() => handleSelect(item)}
-                                style={createMemo(() => {
-                                    const selected = selectedIndex() === i()
-                                    return {
-                                        padding: "8px",
-                                        cursor: "pointer",
-                                        "background-color": selected ? "#1976d2" : "#fff",
-                                        color: selected ? "#fff" : "#222",
-                                        "font-weight": selected ? "bold" : "normal",
-                                        "transition": "background 0.15s, color 0.15s",
-                                    }
-                                })}
-                                onMouseEnter={() => setSelectedIndex(i())}
-                            >
-                                {item}
-                            </li>
-                        )}
-                    </For>
-                </ul>
-            </Show>
+            <div>
+                <For each={getFilteredSuggestions}>
+                    {(item, getIndex) => (
+                        <div
+                            style={computeJson(()=>({
+                                padding: "8px",
+                                cursor: "pointer",
+                                "background-color": getSelectedIndex() === getIndex() ? "#1976d2" : "#fff",
+                                color:              getSelectedIndex() === getIndex() ? "#fff" : "#222",
+                                "font-weight":      getSelectedIndex() === getIndex() ? "bold" : "normal",
+                                "transition": "background 0.15s, color 0.15s",
+                            }))}
+                        >
+                            {item}
+                        </div>
+                    )}
+                </For>
+            </div>
         </div>
     )
 }

@@ -726,36 +726,11 @@ function createComponent(Comp, props) {
   }
   return devComponent(Comp, props || {});
 }
-var narrowedError = (name) => `Attempting to access a stale value from <${name}> that could possibly be undefined. This may occur because you are reading the accessor returned from the component at a time where it has already been unmounted. We recommend cleaning up any stale timers or async, or reading from the initial condition.`;
 function For(props) {
   const fallback = "fallback" in props && {
     fallback: () => props.fallback
   };
   return createMemo(mapArray(() => props.each, props.children, fallback || void 0), void 0, {
-    name: "value"
-  });
-}
-function Show(props) {
-  const keyed = props.keyed;
-  const conditionValue = createMemo(() => props.when, void 0, {
-    name: "condition value"
-  });
-  const condition = keyed ? conditionValue : createMemo(conditionValue, void 0, {
-    equals: (a, b) => !a === !b,
-    name: "condition"
-  });
-  return createMemo(() => {
-    const c = condition();
-    if (c) {
-      const child = props.children;
-      const fn = typeof child === "function" && child.length > 0;
-      return fn ? untrack(() => child(keyed ? c : () => {
-        if (!untrack(condition)) throw narrowedError("Show");
-        return conditionValue();
-      })) : child;
-    }
-    return props.fallback;
-  }, void 0, {
     name: "value"
   });
 }
@@ -1088,6 +1063,20 @@ function reconcileArrays(parentNode, a, b) {
   }
 }
 var $$EVENTS = "_$DX_DELEGATE";
+function render(code, element, init, options = {}) {
+  if (!element) {
+    throw new Error("The `element` passed to `render(..., element)` doesn't exist. Make sure `element` exists in the document.");
+  }
+  let disposer;
+  createRoot((dispose2) => {
+    disposer = dispose2;
+    element === document ? code() : insert(element, code(), element.firstChild ? null : void 0, init);
+  }, options.owner);
+  return () => {
+    disposer();
+    element.textContent = "";
+  };
+}
 function delegateEvents(eventNames, document2 = globalThis.document) {
   const e = document2[$$EVENTS] || (document2[$$EVENTS] = /* @__PURE__ */ new Set());
   for (let i = 0, l = eventNames.length; i < l; i++) {
@@ -1568,70 +1557,70 @@ var h = createHyperScript({
   SVGElements
 });
 
-// src/jsx.ts
+// src/jsx.tsx
 globalThis.React = {
   createElement: h
+};
+var computeJson = (fn) => {
+  let value = fn();
+  const [getValue, setValue] = createSignal(value);
+  createEffect(() => {
+    const newValue = fn();
+    if (value != newValue && JSON.stringify(value) !== JSON.stringify(newValue)) {
+      setValue(newValue);
+      value = newValue;
+    }
+  });
+  return getValue;
 };
 
 // src/components/AutocompleteSearch.tsx
 var AutocompleteSearch = (props) => {
-  const [query, setQuery] = createSignal("");
-  const [selectedIndex, setSelectedIndex] = createSignal(-1);
-  const [showSuggestions, setShowSuggestions] = createSignal(false);
-  const filteredItems = createMemo(() => {
-    const q = query().toLowerCase();
-    let result = q ? props.items.filter((item) => item.toLowerCase().includes(q)) : [];
-    console.debug(`result is:`, result);
-    return result;
-  });
-  const renderList = createMemo(() => {
-    const filteredItems_ = filteredItems();
-    const showSuggestions_ = showSuggestions();
-    return showSuggestions_ && filteredItems_.length > 0;
-  });
-  const handleSelect = (item) => {
-    setQuery(item);
-    setShowSuggestions(false);
+  const getFilteredSuggestions = computeJson(() => props.suggestions.filter((item) => item.toLowerCase().includes(props.value().toLowerCase())));
+  const [getSelectedIndex, setSelectedIndex] = createSignal(-1);
+  const handleSubmit = (item) => {
     setSelectedIndex(-1);
     props.onSubmit?.(item);
-  };
-  const handleKeyDown = (e) => {
-    const suggestions = filteredItems();
-    let index = selectedIndex();
-    console.debug(`e is:`, e);
-    switch (e.key) {
-      case "ArrowDown":
-        e.preventDefault();
-        if (!showSuggestions()) setShowSuggestions(true);
-        if (suggestions.length > 0) {
-          setSelectedIndex(index < suggestions.length - 1 ? index + 1 : 0);
-        }
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        if (!showSuggestions()) setShowSuggestions(true);
-        if (suggestions.length > 0) {
-          setSelectedIndex(index > 0 ? index - 1 : suggestions.length - 1);
-        }
-        break;
-      case "Enter":
-        if (showSuggestions() && index >= 0 && suggestions[index]) {
-          handleSelect(suggestions[index]);
-          e.preventDefault();
-        } else if (query().trim() !== "") {
-          props.onSubmit?.(query());
-        }
-        break;
-      case "Escape":
-        setShowSuggestions(false);
-        break;
-    }
   };
   createEffect(() => {
     setSelectedIndex(-1);
   }, [
-    filteredItems
+    getFilteredSuggestions
   ]);
+  const handleKeyDown = (e) => {
+    let index = getSelectedIndex();
+    const maxIndex = getFilteredSuggestions().length - 1;
+    let newIndex;
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        newIndex = index + 1;
+        if (newIndex > maxIndex) {
+          newIndex = maxIndex;
+        }
+        setSelectedIndex(newIndex);
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        newIndex = index - 1;
+        if (newIndex > maxIndex) {
+          newIndex = maxIndex;
+        }
+        if (newIndex <= -1) {
+          newIndex = -1;
+        }
+        setSelectedIndex(newIndex);
+        break;
+      case "Enter":
+        if (index > -1 && index <= maxIndex) {
+          handleSubmit(getFilteredSuggestions()[index]);
+        }
+        break;
+      case "Escape":
+        setSelectedIndex(-1);
+        break;
+    }
+  };
   return /* @__PURE__ */ React.createElement("div", {
     style: {
       position: "relative",
@@ -1639,17 +1628,13 @@ var AutocompleteSearch = (props) => {
     }
   }, /* @__PURE__ */ React.createElement("input", {
     ...props,
+    value: props.value,
     type: "text",
-    value: query,
-    placeholder: props.placeholder ?? "Search...",
     onInput: (e) => {
-      setQuery(e.currentTarget.value);
-      setShowSuggestions(true);
-      setSelectedIndex(-1);
+      const query = e.currentTarget.value;
       props.onInput?.(e);
     },
     onFocus: (e) => {
-      setShowSuggestions(true);
       props.onFocus?.(e);
     },
     onKeyDown: (e) => {
@@ -1664,107 +1649,71 @@ var AutocompleteSearch = (props) => {
       "border-radius": "4px"
     },
     autocomplete: "off"
-  }), /* @__PURE__ */ React.createElement(Show, {
-    when: renderList
-  }, /* @__PURE__ */ React.createElement("ul", {
-    style: {
-      position: "absolute",
-      top: "100%",
-      left: "0",
-      right: "0",
-      "background-color": "#fff",
-      border: "1px solid #ccc",
-      "border-top": "none",
-      "max-height": "200px",
-      overflow: "auto",
-      margin: 0,
-      padding: 0,
-      "list-style": "none",
-      "z-index": 10
-    }
-  }, /* @__PURE__ */ React.createElement(For, {
-    each: filteredItems
-  }, (item, i) => /* @__PURE__ */ React.createElement("li", {
-    onClick: () => handleSelect(item),
-    style: createMemo(() => {
-      const selected = selectedIndex() === i();
-      return {
-        padding: "8px",
-        cursor: "pointer",
-        "background-color": selected ? "#1976d2" : "#fff",
-        color: selected ? "#fff" : "#222",
-        "font-weight": selected ? "bold" : "normal",
-        "transition": "background 0.15s, color 0.15s"
-      };
-    }),
-    onMouseEnter: () => setSelectedIndex(i())
-  }, item)))));
+  }), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(For, {
+    each: getFilteredSuggestions
+  }, (item, getIndex) => /* @__PURE__ */ React.createElement("div", {
+    style: computeJson(() => ({
+      padding: "8px",
+      cursor: "pointer",
+      "background-color": getSelectedIndex() === getIndex() ? "#1976d2" : "#fff",
+      color: getSelectedIndex() === getIndex() ? "#fff" : "#222",
+      "font-weight": getSelectedIndex() === getIndex() ? "bold" : "normal",
+      "transition": "background 0.15s, color 0.15s"
+    }))
+  }, item))));
 };
 
 // src/components/SearchWebsites.tsx
 function SearchWebsites() {
-  const [query, setQuery] = createSignal("");
-  const [results, setResults] = createSignal([]);
-  const [showSuggestions, setShowSuggestions] = createSignal(false);
+  const [getQuery, setQuery] = createSignal("");
+  const [getResults, setResults] = createSignal([]);
   let timeout;
+  const debounceRate = 200;
   createEffect(() => {
-    const q = query().trim().toLowerCase();
+    const query = getQuery().trim().toLowerCase();
     if (timeout) clearTimeout(timeout);
-    if (!q) {
+    if (!query) {
       setResults([]);
-      setShowSuggestions(false);
       return;
     }
     timeout = setTimeout(async () => {
       const res = await fetch("/searchWebsites");
       if (res.ok) {
         const sites = await res.json();
-        const filtered = sites.filter((site) => site.toLowerCase().includes(q));
-        console.debug(`sites is:`, sites);
+        const filtered = sites.filter((site) => site.toLowerCase().includes(query));
         setResults(filtered);
-        setShowSuggestions(filtered.length > 0);
+      } else {
+        console.error("Error fetching website names", res);
       }
-    }, 200);
+    }, debounceRate);
   });
-  function handleSuggestionClick(site) {
-    setQuery(site);
-    setShowSuggestions(false);
-  }
-  function handleBlur() {
-    setTimeout(() => setShowSuggestions(false), 100);
-  }
   return /* @__PURE__ */ React.createElement("div", {
+    name: "SearchWebsites",
     style: {
       display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
+      "flex-direction": "column",
+      "align-items": "center",
+      "justify-content": "center",
       margin: "2rem auto",
       width: "100%",
-      maxWidth: "400px",
+      "max-width": "400px",
       position: "relative"
     }
   }, /* @__PURE__ */ React.createElement(AutocompleteSearch, {
-    items: results,
+    suggestions: getResults,
+    value: () => getQuery,
     onSubmit: (item) => {
+      setQuery(item);
       console.log("Selected website:", item);
     },
     placeholder: "Type a website...",
     onInput: (e) => {
       setQuery(e.currentTarget.value);
-      setShowSuggestions(true);
     }
   }));
 }
 
 // src/App.tsx
-function App() {
-  return /* @__PURE__ */ React.createElement("div", {
-    style: {
-      textAlign: "center",
-      "margin-top": "2rem"
-    }
-  }, /* @__PURE__ */ React.createElement(SearchWebsites, null));
-}
-
-// src/main.tsx
-document.body = /* @__PURE__ */ React.createElement("body", null, /* @__PURE__ */ React.createElement(App, null))();
+render(() => /* @__PURE__ */ React.createElement("body", {
+  style: "height: 100vh; overflow: auto; font: 14px/1.4 sans-serif;"
+}, /* @__PURE__ */ React.createElement(SearchWebsites, null)), document.body);

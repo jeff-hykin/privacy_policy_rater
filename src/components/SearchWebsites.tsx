@@ -1,66 +1,57 @@
 import { createSignal, createEffect, Show, For } from "https://esm.sh/solid-js@1.9.9?dev"
 import { AutocompleteSearch } from "./AutocompleteSearch.tsx"
+import { computeJson } from "../jsx.tsx"
 
 export function SearchWebsites() {
-    const [query, setQuery] = createSignal("")
-    const [results, setResults] = createSignal<string[]>([])
-    const [showSuggestions, setShowSuggestions] = createSignal(false)
-    let timeout: number | undefined
+    const [ getQuery, setQuery ] = createSignal("")
+    const [ getResults, setResults ] = createSignal<string[]>([])
     
-
     // Fetch and filter website names as user types
+    let timeout: number | undefined
+    const debounceRate = 200
     createEffect(() => {
-        const q = query().trim().toLowerCase()
+        const query = getQuery().trim().toLowerCase()
         if (timeout) clearTimeout(timeout)
-        if (!q) {
+        if (!query) {
             setResults([])
-            setShowSuggestions(false)
             return
         }
         timeout = setTimeout(async () => {
             const res = await fetch("/searchWebsites")
             if (res.ok) {
                 const sites: string[] = await res.json()
-                const filtered = sites.filter((site) => site.toLowerCase().includes(q))
-                console.debug(`sites is:`, sites)
+                const filtered = sites.filter((site) => site.toLowerCase().includes(query))
                 setResults(filtered)
-                setShowSuggestions(filtered.length > 0)
+            } else {
+                console.error("Error fetching website names", res)
             }
-        }, 200)
+        }, debounceRate)
     })
-
-    // Handle suggestion click
-    function handleSuggestionClick(site: string) {
-        setQuery(site)
-        setShowSuggestions(false)
-    }
-
-    // Hide suggestions when input loses focus (with slight delay for click)
-    function handleBlur() {
-        setTimeout(() => setShowSuggestions(false), 100)
-    }
 
     return (
         <div
+            name="SearchWebsites"
             style={{
                 display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
+                "flex-direction": "column",
+                "align-items": "center",
+                "justify-content": "center",
                 margin: "2rem auto",
                 width: "100%",
-                maxWidth: "400px",
+                "max-width": "400px",
                 position: "relative",
             }}
         >
             <AutocompleteSearch 
-                items={results}
+                suggestions={getResults}
+                value={()=>getQuery}
                 onSubmit={(item) => {
+                    setQuery(item)
                     console.log("Selected website:", item)
                 }}
                 placeholder="Type a website..."
                 onInput={(e) => {
                     setQuery(e.currentTarget.value)
-                    setShowSuggestions(true)
                 }}
                 />
         </div>
