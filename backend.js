@@ -4,7 +4,7 @@ const args = {
     port: 8000,
 }
 
-const allSiteNames = new Set()
+let allSiteNames = []
 Deno.serve(
     {
         port: args.port,
@@ -31,24 +31,22 @@ Deno.serve(
             console.log(`searching for websites`)
             // Get all folders in ./data (assuming each folder is a website)
             try {
-                if (allSiteNames.size == 0 && await FileSystem.exists("./data")) {
+                if (allSiteNames.length == 0 && await FileSystem.exists("./data")) {
                     const entries = await FileSystem.listFolderItemsIn("./data")
-                    const sites = entries
+                    allSiteNames = entries
                         .filter(e => e.isDirectory)
-                        .map(e => e.name)
-                    
-                    for (let each of sites) {
-                        allSiteNames.add(each)
-                    }
+                        .map(e => e.basename)
                 }
             } catch (err) {
+                console.debug(`err is:`,err)
                 return new Response(
                     new TextEncoder().encode("error reading data directory"),
                     { status: 500, headers: { "content-type": "text/plain" } }
                 )
             }
+            console.debug(`allSiteNames is:`,allSiteNames)
             return new Response(
-                new TextEncoder().encode(JSON.stringify([...allSiteNames])),
+                new TextEncoder().encode(JSON.stringify(allSiteNames)),
                 { status: 200, headers: { "content-type": "application/json" } }
             )
         } else if (pathname.startsWith("/getWebsite")) {
