@@ -1377,10 +1377,7 @@ globalThis.React = {
 // src/App.tsx
 function App() {
   const [count, setCount] = createSignal(0);
-  const increment = () => {
-    console.log(`incrementing`);
-    return setCount(count() + 1);
-  };
+  const increment = () => setCount(count() + 1);
   const decrement = () => setCount(count() - 1);
   const reset2 = () => setCount(0);
   return /* @__PURE__ */ React.createElement("div", {

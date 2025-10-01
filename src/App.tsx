@@ -4,10 +4,7 @@ import { createSignal } from "https://esm.sh/solid-js@1.9.9?dev"
 export default function App() {
     const [count, setCount] = createSignal(0)
 
-    const increment = () => {
-        console.log(`incrementing`)
-        return setCount(count() + 1)
-    }
+    const increment = () => setCount(count() + 1)
     const decrement = () => setCount(count() - 1)
     const reset = () => setCount(0)
     
