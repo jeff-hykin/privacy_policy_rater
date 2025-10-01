@@ -1,8 +1,12 @@
 import { createSignal, createEffect, createMemo, Show, For } from "https://esm.sh/solid-js@1.9.9?dev"
 
-interface AutocompleteSearchProps {
+export interface AutocompleteSearchProps {
     items: string[]
     placeholder?: string
+    onInput?: (e: InputEvent & { currentTarget: HTMLInputElement; target: Element }) => void
+    onFocus?: () => void
+    onKeyDown?: (e: KeyboardEvent) => void
+    onSubmit?: (item: string) => void
 }
 
 export const AutocompleteSearch = (props: AutocompleteSearchProps) => {
@@ -26,23 +30,35 @@ export const AutocompleteSearch = (props: AutocompleteSearchProps) => {
     const handleSelect = (item: string) => {
         setQuery(item)
         setShowSuggestions(false)
+        setSelectedIndex(-1)
+        props.onSubmit?.(item)
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
         const suggestions = filteredItems()
-        const index = selectedIndex()
-
+        let index = selectedIndex()
+        console.debug(`e is:`,e)
         switch (e.key) {
             case "ArrowDown":
-                setSelectedIndex((index + 1) % suggestions.length)
+                e.preventDefault()
+                if (!showSuggestions()) setShowSuggestions(true)
+                if (suggestions.length > 0) {
+                    setSelectedIndex(index < suggestions.length - 1 ? index + 1 : 0)
+                }
                 break
             case "ArrowUp":
-                setSelectedIndex((index - 1 + suggestions.length) % suggestions.length)
+                e.preventDefault()
+                if (!showSuggestions()) setShowSuggestions(true)
+                if (suggestions.length > 0) {
+                    setSelectedIndex(index > 0 ? index - 1 : suggestions.length - 1)
+                }
                 break
             case "Enter":
-                if (index >= 0 && suggestions[index]) {
+                if (showSuggestions() && index >= 0 && suggestions[index]) {
                     handleSelect(suggestions[index])
                     e.preventDefault()
+                } else if (query().trim() !== "") {
+                    props.onSubmit?.(query())
                 }
                 break
             case "Escape":
@@ -50,6 +66,11 @@ export const AutocompleteSearch = (props: AutocompleteSearchProps) => {
                 break
         }
     }
+
+    // Reset selectedIndex when filteredItems changes
+    createEffect(() => {
+        setSelectedIndex(-1)
+    }, [filteredItems])
 
     return (
         <div style={{ position: "relative", width: "300px" }}>
@@ -64,13 +85,13 @@ export const AutocompleteSearch = (props: AutocompleteSearchProps) => {
                     setSelectedIndex(-1)
                     props.onInput?.(e)
                 }}
-                onFocus={() => {
+                onFocus={(e) => {
                     setShowSuggestions(true)
-                    props.onFocus?.()
+                    props.onFocus?.(e)
                 }}
-                onKeyDown={(...args) => {
-                    handleKeyDown(...args)
-                    props.onKeyDown?.(...args)
+                onKeyDown={(e) => {
+                    handleKeyDown(e)
+                    props.onKeyDown?.(e)
                 }}
                 style={{
                     width: "100%",
@@ -79,6 +100,7 @@ export const AutocompleteSearch = (props: AutocompleteSearchProps) => {
                     border: "1px solid #ccc",
                     "border-radius": "4px",
                 }}
+                autocomplete="off"
             />
 
             <Show when={renderList}>
@@ -100,14 +122,20 @@ export const AutocompleteSearch = (props: AutocompleteSearchProps) => {
                     }}
                 >
                     <For each={filteredItems}>
-                        {(item, i) => (
+                        {(item, i) =>(
                             <li
                                 onClick={() => handleSelect(item)}
-                                style={{
-                                    padding: "8px",
-                                    cursor: "pointer",
-                                    "background-color": selectedIndex() === i() ? "#eee" : "#fff",
-                                }}
+                                style={createMemo(() => {
+                                    const selected = selectedIndex() === i()
+                                    return {
+                                        padding: "8px",
+                                        cursor: "pointer",
+                                        "background-color": selected ? "#1976d2" : "#fff",
+                                        color: selected ? "#fff" : "#222",
+                                        "font-weight": selected ? "bold" : "normal",
+                                        "transition": "background 0.15s, color 0.15s",
+                                    }
+                                })}
                                 onMouseEnter={() => setSelectedIndex(i())}
                             >
                                 {item}

@@ -1592,21 +1592,34 @@ var AutocompleteSearch = (props) => {
   const handleSelect = (item) => {
     setQuery(item);
     setShowSuggestions(false);
+    setSelectedIndex(-1);
+    props.onSubmit?.(item);
   };
   const handleKeyDown = (e) => {
     const suggestions = filteredItems();
-    const index = selectedIndex();
+    let index = selectedIndex();
+    console.debug(`e is:`, e);
     switch (e.key) {
       case "ArrowDown":
-        setSelectedIndex((index + 1) % suggestions.length);
+        e.preventDefault();
+        if (!showSuggestions()) setShowSuggestions(true);
+        if (suggestions.length > 0) {
+          setSelectedIndex(index < suggestions.length - 1 ? index + 1 : 0);
+        }
         break;
       case "ArrowUp":
-        setSelectedIndex((index - 1 + suggestions.length) % suggestions.length);
+        e.preventDefault();
+        if (!showSuggestions()) setShowSuggestions(true);
+        if (suggestions.length > 0) {
+          setSelectedIndex(index > 0 ? index - 1 : suggestions.length - 1);
+        }
         break;
       case "Enter":
-        if (index >= 0 && suggestions[index]) {
+        if (showSuggestions() && index >= 0 && suggestions[index]) {
           handleSelect(suggestions[index]);
           e.preventDefault();
+        } else if (query().trim() !== "") {
+          props.onSubmit?.(query());
         }
         break;
       case "Escape":
@@ -1614,6 +1627,11 @@ var AutocompleteSearch = (props) => {
         break;
     }
   };
+  createEffect(() => {
+    setSelectedIndex(-1);
+  }, [
+    filteredItems
+  ]);
   return /* @__PURE__ */ React.createElement("div", {
     style: {
       position: "relative",
@@ -1630,13 +1648,13 @@ var AutocompleteSearch = (props) => {
       setSelectedIndex(-1);
       props.onInput?.(e);
     },
-    onFocus: () => {
+    onFocus: (e) => {
       setShowSuggestions(true);
-      props.onFocus?.();
+      props.onFocus?.(e);
     },
-    onKeyDown: (...args) => {
-      handleKeyDown(...args);
-      props.onKeyDown?.(...args);
+    onKeyDown: (e) => {
+      handleKeyDown(e);
+      props.onKeyDown?.(e);
     },
     style: {
       width: "100%",
@@ -1644,7 +1662,8 @@ var AutocompleteSearch = (props) => {
       boxSizing: "border-box",
       border: "1px solid #ccc",
       "border-radius": "4px"
-    }
+    },
+    autocomplete: "off"
   }), /* @__PURE__ */ React.createElement(Show, {
     when: renderList
   }, /* @__PURE__ */ React.createElement("ul", {
@@ -1667,11 +1686,17 @@ var AutocompleteSearch = (props) => {
     each: filteredItems
   }, (item, i) => /* @__PURE__ */ React.createElement("li", {
     onClick: () => handleSelect(item),
-    style: {
-      padding: "8px",
-      cursor: "pointer",
-      "background-color": selectedIndex() === i() ? "#eee" : "#fff"
-    },
+    style: createMemo(() => {
+      const selected = selectedIndex() === i();
+      return {
+        padding: "8px",
+        cursor: "pointer",
+        "background-color": selected ? "#1976d2" : "#fff",
+        color: selected ? "#fff" : "#222",
+        "font-weight": selected ? "bold" : "normal",
+        "transition": "background 0.15s, color 0.15s"
+      };
+    }),
     onMouseEnter: () => setSelectedIndex(i())
   }, item)))));
 };
@@ -1720,6 +1745,9 @@ function SearchWebsites() {
     }
   }, /* @__PURE__ */ React.createElement(AutocompleteSearch, {
     items: results,
+    onSubmit: (item) => {
+      console.log("Selected website:", item);
+    },
     placeholder: "Type a website...",
     onInput: (e) => {
       setQuery(e.currentTarget.value);

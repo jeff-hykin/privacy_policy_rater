@@ -1,8 +1,6 @@
 import { createSignal, createEffect, Show, For } from "https://esm.sh/solid-js@1.9.9?dev"
 import { AutocompleteSearch } from "./AutocompleteSearch.tsx"
 
-const items = ["Apple", "Banana", "Orange", "Grape", "Pineapple", "Mango", "Strawberry", "Blueberry", "Watermelon"]
-
 export function SearchWebsites() {
     const [query, setQuery] = createSignal("")
     const [results, setResults] = createSignal<string[]>([])
@@ -56,6 +54,9 @@ export function SearchWebsites() {
         >
             <AutocompleteSearch 
                 items={results}
+                onSubmit={(item) => {
+                    console.log("Selected website:", item)
+                }}
                 placeholder="Type a website..."
                 onInput={(e) => {
                     setQuery(e.currentTarget.value)
