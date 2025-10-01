@@ -91,6 +91,13 @@ function createRenderEffect(fn, value, options) {
   if (Scheduler && Transition && Transition.running) Updates.push(c);
   else updateComputation(c);
 }
+function createEffect(fn, value, options) {
+  runEffects = runUserEffects;
+  const c = createComputation(fn, value, false, STALE, options), s = SuspenseContext && useContext(SuspenseContext);
+  if (s) c.suspense = s;
+  if (!options || !options.render) c.user = true;
+  Effects ? Effects.push(c) : updateComputation(c);
+}
 function untrack(fn) {
   if (!ExternalSourceConfig && Listener === null) return fn();
   const listener = Listener;
@@ -163,6 +170,10 @@ function registerGraph(value) {
     value.graph = Owner;
   }
   if (DevHooks.afterRegisterGraph) DevHooks.afterRegisterGraph(value);
+}
+function useContext(context) {
+  let value;
+  return Owner && Owner.context && (value = Owner.context[context.id]) !== void 0 ? value : context.defaultValue;
 }
 var SuspenseContext;
 function readSignal() {
@@ -451,6 +462,31 @@ function scheduleQueue(queue) {
       });
     }
   }
+}
+function runUserEffects(queue) {
+  let i, userLength = 0;
+  for (i = 0; i < queue.length; i++) {
+    const e = queue[i];
+    if (!e.user) runTop(e);
+    else queue[userLength++] = e;
+  }
+  if (sharedConfig.context) {
+    if (sharedConfig.count) {
+      sharedConfig.effects || (sharedConfig.effects = []);
+      sharedConfig.effects.push(...queue.slice(0, userLength));
+      return;
+    }
+    setHydrateContext();
+  }
+  if (sharedConfig.effects && (sharedConfig.done || !sharedConfig.count)) {
+    queue = [
+      ...sharedConfig.effects,
+      ...queue
+    ];
+    userLength += sharedConfig.effects.length;
+    delete sharedConfig.effects;
+  }
+  for (i = 0; i < userLength; i++) runTop(queue[i]);
 }
 function lookUpstream(node, ignore) {
   const runningTransition = Transition && Transition.running;
@@ -1374,27 +1410,73 @@ globalThis.React = {
   createElement: h
 };
 
+// src/components/SearchWebsites.tsx
+function SearchWebsites() {
+  const [query, setQuery] = createSignal("");
+  const [results, setResults] = createSignal([]);
+  let timeout;
+  createEffect(() => {
+    const q = query().trim().toLowerCase();
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    if (!q) {
+      setResults([]);
+      return;
+    }
+    timeout = setTimeout(async () => {
+      const res = await fetch("/searchWebsites");
+      if (res.ok) {
+        const sites = await res.json();
+        setResults(sites.filter((site) => site.toLowerCase().includes(q)));
+      }
+    }, 200);
+  });
+  return /* @__PURE__ */ React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      margin: "2rem auto",
+      width: "100%",
+      maxWidth: "400px"
+    }
+  }, /* @__PURE__ */ React.createElement("input", {
+    type: "text",
+    placeholder: "Search websites...",
+    value: query(),
+    onInput: (e) => setQuery(e.currentTarget.value),
+    style: {
+      padding: "0.5rem",
+      width: "100%",
+      fontSize: "1rem",
+      borderRadius: "4px",
+      border: "1px solid #ccc",
+      marginBottom: "1rem"
+    }
+  }), /* @__PURE__ */ React.createElement("ul", {
+    style: {
+      width: "100%",
+      listStyle: "none",
+      padding: 0
+    }
+  }, results().map((site) => /* @__PURE__ */ React.createElement("li", {
+    style: {
+      padding: "0.5rem",
+      borderBottom: "1px solid #eee",
+      textAlign: "left"
+    }
+  }, site))));
+}
+
 // src/App.tsx
 function App() {
-  const [count, setCount] = createSignal(0);
-  const increment = () => setCount(count() + 1);
-  const decrement = () => setCount(count() - 1);
-  const reset2 = () => setCount(0);
   return /* @__PURE__ */ React.createElement("div", {
     style: {
       textAlign: "center",
       "margin-top": "2rem"
     }
-  }, /* @__PURE__ */ React.createElement("h1", null, "Solid.js Counter"), /* @__PURE__ */ React.createElement("h2", null, "Count: ", count), /* @__PURE__ */ React.createElement("button", {
-    onClick: decrement
-  }, "-"), /* @__PURE__ */ React.createElement("button", {
-    onClick: reset2,
-    style: {
-      margin: "0 1rem"
-    }
-  }, "Reset"), /* @__PURE__ */ React.createElement("button", {
-    onClick: increment
-  }, "+"));
+  }, /* @__PURE__ */ React.createElement(SearchWebsites, null));
 }
 
 // src/main.tsx
