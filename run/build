@@ -8,4 +8,4 @@ const $$ = (...args)=>$(...args).noThrow()
 // await $$`false`.text("combined")
 // await $$`echo`.stdinText("yes\n")
 
-await $$`deno bundle ${`${FileSystem.thisFolder}/../src/main.tsx`} --output ${`${FileSystem.thisFolder}/../docs/index.js`} ${Deno.args}`
+await $$`deno bundle ${`${FileSystem.thisFolder}/../src/App.tsx`} --output ${`${FileSystem.thisFolder}/../docs/index.js`} ${Deno.args}`
