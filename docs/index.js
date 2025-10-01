@@ -57,6 +57,30 @@ var DevHooks = {
   afterCreateSignal: null,
   afterRegisterGraph: null
 };
+function createRoot(fn, detachedOwner) {
+  const listener = Listener, owner = Owner, unowned = fn.length === 0, current = detachedOwner === void 0 ? owner : detachedOwner, root = unowned ? {
+    owned: null,
+    cleanups: null,
+    context: null,
+    owner: null
+  } : {
+    owned: null,
+    cleanups: null,
+    context: current ? current.context : null,
+    owner: current
+  }, updateFn = unowned ? () => fn(() => {
+    throw new Error("Dispose method must be an explicit argument to createRoot function");
+  }) : () => fn(() => untrack(() => cleanNode(root)));
+  DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(root);
+  Owner = root;
+  Listener = null;
+  try {
+    return runUpdates(updateFn, true);
+  } finally {
+    Listener = listener;
+    Owner = owner;
+  }
+}
 function createSignal(value, options) {
   options = options ? Object.assign({}, signalOptions, options) : signalOptions;
   const s = {
@@ -97,6 +121,18 @@ function createEffect(fn, value, options) {
   if (s) c.suspense = s;
   if (!options || !options.render) c.user = true;
   Effects ? Effects.push(c) : updateComputation(c);
+}
+function createMemo(fn, value, options) {
+  options = options ? Object.assign({}, signalOptions, options) : signalOptions;
+  const c = createComputation(fn, value, true, 0, options);
+  c.observers = null;
+  c.observerSlots = null;
+  c.comparator = options.equals || void 0;
+  if (Scheduler && Transition && Transition.running) {
+    c.tState = STALE;
+    Updates.push(c);
+  } else updateComputation(c);
+  return readSignal.bind(c);
 }
 function untrack(fn) {
   if (!ExternalSourceConfig && Listener === null) return fn();
@@ -583,6 +619,100 @@ function handleError(err, owner = Owner) {
   else runErrors(error, fns, owner);
 }
 var FALLBACK = Symbol("fallback");
+function dispose(d) {
+  for (let i = 0; i < d.length; i++) d[i]();
+}
+function mapArray(list, mapFn, options = {}) {
+  let items = [], mapped = [], disposers = [], len = 0, indexes = mapFn.length > 1 ? [] : null;
+  onCleanup(() => dispose(disposers));
+  return () => {
+    let newItems = list() || [], newLen = newItems.length, i, j;
+    newItems[$TRACK];
+    return untrack(() => {
+      let newIndices, newIndicesNext, temp, tempdisposers, tempIndexes, start, end, newEnd, item;
+      if (newLen === 0) {
+        if (len !== 0) {
+          dispose(disposers);
+          disposers = [];
+          items = [];
+          mapped = [];
+          len = 0;
+          indexes && (indexes = []);
+        }
+        if (options.fallback) {
+          items = [
+            FALLBACK
+          ];
+          mapped[0] = createRoot((disposer) => {
+            disposers[0] = disposer;
+            return options.fallback();
+          });
+          len = 1;
+        }
+      } else if (len === 0) {
+        mapped = new Array(newLen);
+        for (j = 0; j < newLen; j++) {
+          items[j] = newItems[j];
+          mapped[j] = createRoot(mapper);
+        }
+        len = newLen;
+      } else {
+        temp = new Array(newLen);
+        tempdisposers = new Array(newLen);
+        indexes && (tempIndexes = new Array(newLen));
+        for (start = 0, end = Math.min(len, newLen); start < end && items[start] === newItems[start]; start++) ;
+        for (end = len - 1, newEnd = newLen - 1; end >= start && newEnd >= start && items[end] === newItems[newEnd]; end--, newEnd--) {
+          temp[newEnd] = mapped[end];
+          tempdisposers[newEnd] = disposers[end];
+          indexes && (tempIndexes[newEnd] = indexes[end]);
+        }
+        newIndices = /* @__PURE__ */ new Map();
+        newIndicesNext = new Array(newEnd + 1);
+        for (j = newEnd; j >= start; j--) {
+          item = newItems[j];
+          i = newIndices.get(item);
+          newIndicesNext[j] = i === void 0 ? -1 : i;
+          newIndices.set(item, j);
+        }
+        for (i = start; i <= end; i++) {
+          item = items[i];
+          j = newIndices.get(item);
+          if (j !== void 0 && j !== -1) {
+            temp[j] = mapped[i];
+            tempdisposers[j] = disposers[i];
+            indexes && (tempIndexes[j] = indexes[i]);
+            j = newIndicesNext[j];
+            newIndices.set(item, j);
+          } else disposers[i]();
+        }
+        for (j = start; j < newLen; j++) {
+          if (j in temp) {
+            mapped[j] = temp[j];
+            disposers[j] = tempdisposers[j];
+            if (indexes) {
+              indexes[j] = tempIndexes[j];
+              indexes[j](j);
+            }
+          } else mapped[j] = createRoot(mapper);
+        }
+        mapped = mapped.slice(0, len = newLen);
+        items = newItems.slice(0);
+      }
+      return mapped;
+    });
+    function mapper(disposer) {
+      disposers[j] = disposer;
+      if (indexes) {
+        const [s, set] = createSignal(j, {
+          name: "index"
+        });
+        indexes[j] = set;
+        return mapFn(newItems[j], s);
+      }
+      return mapFn(newItems[j]);
+    }
+  };
+}
 var hydrationEnabled = false;
 function createComponent(Comp, props) {
   if (hydrationEnabled) {
@@ -595,6 +725,39 @@ function createComponent(Comp, props) {
     }
   }
   return devComponent(Comp, props || {});
+}
+var narrowedError = (name) => `Attempting to access a stale value from <${name}> that could possibly be undefined. This may occur because you are reading the accessor returned from the component at a time where it has already been unmounted. We recommend cleaning up any stale timers or async, or reading from the initial condition.`;
+function For(props) {
+  const fallback = "fallback" in props && {
+    fallback: () => props.fallback
+  };
+  return createMemo(mapArray(() => props.each, props.children, fallback || void 0), void 0, {
+    name: "value"
+  });
+}
+function Show(props) {
+  const keyed = props.keyed;
+  const conditionValue = createMemo(() => props.when, void 0, {
+    name: "condition value"
+  });
+  const condition = keyed ? conditionValue : createMemo(conditionValue, void 0, {
+    equals: (a, b) => !a === !b,
+    name: "condition"
+  });
+  return createMemo(() => {
+    const c = condition();
+    if (c) {
+      const child = props.children;
+      const fn = typeof child === "function" && child.length > 0;
+      return fn ? untrack(() => child(keyed ? c : () => {
+        if (!untrack(condition)) throw narrowedError("Show");
+        return conditionValue();
+      })) : child;
+    }
+    return props.fallback;
+  }, void 0, {
+    name: "value"
+  });
 }
 if (globalThis) {
   if (!globalThis.Solid$$) globalThis.Solid$$ = true;
@@ -1410,28 +1573,141 @@ globalThis.React = {
   createElement: h
 };
 
+// src/components/AutocompleteSearch.tsx
+var AutocompleteSearch = (props) => {
+  const [query, setQuery] = createSignal("");
+  const [selectedIndex, setSelectedIndex] = createSignal(-1);
+  const [showSuggestions, setShowSuggestions] = createSignal(false);
+  const filteredItems = createMemo(() => {
+    const q = query().toLowerCase();
+    let result = q ? props.items.filter((item) => item.toLowerCase().includes(q)) : [];
+    console.debug(`result is:`, result);
+    return result;
+  });
+  const renderList = createMemo(() => {
+    const filteredItems_ = filteredItems();
+    const showSuggestions_ = showSuggestions();
+    return showSuggestions_ && filteredItems_.length > 0;
+  });
+  const handleSelect = (item) => {
+    setQuery(item);
+    setShowSuggestions(false);
+  };
+  const handleKeyDown = (e) => {
+    const suggestions = filteredItems();
+    const index = selectedIndex();
+    switch (e.key) {
+      case "ArrowDown":
+        setSelectedIndex((index + 1) % suggestions.length);
+        break;
+      case "ArrowUp":
+        setSelectedIndex((index - 1 + suggestions.length) % suggestions.length);
+        break;
+      case "Enter":
+        if (index >= 0 && suggestions[index]) {
+          handleSelect(suggestions[index]);
+          e.preventDefault();
+        }
+        break;
+      case "Escape":
+        setShowSuggestions(false);
+        break;
+    }
+  };
+  return /* @__PURE__ */ React.createElement("div", {
+    style: {
+      position: "relative",
+      width: "300px"
+    }
+  }, /* @__PURE__ */ React.createElement("input", {
+    ...props,
+    type: "text",
+    value: query,
+    placeholder: props.placeholder ?? "Search...",
+    onInput: (e) => {
+      setQuery(e.currentTarget.value);
+      setShowSuggestions(true);
+      setSelectedIndex(-1);
+      props.onInput?.(e);
+    },
+    onFocus: () => {
+      setShowSuggestions(true);
+      props.onFocus?.();
+    },
+    onKeyDown: (...args) => {
+      handleKeyDown(...args);
+      props.onKeyDown?.(...args);
+    },
+    style: {
+      width: "100%",
+      padding: "8px",
+      boxSizing: "border-box",
+      border: "1px solid #ccc",
+      "border-radius": "4px"
+    }
+  }), /* @__PURE__ */ React.createElement(Show, {
+    when: renderList
+  }, /* @__PURE__ */ React.createElement("ul", {
+    style: {
+      position: "absolute",
+      top: "100%",
+      left: "0",
+      right: "0",
+      "background-color": "#fff",
+      border: "1px solid #ccc",
+      "border-top": "none",
+      "max-height": "200px",
+      overflow: "auto",
+      margin: 0,
+      padding: 0,
+      "list-style": "none",
+      "z-index": 10
+    }
+  }, /* @__PURE__ */ React.createElement(For, {
+    each: filteredItems
+  }, (item, i) => /* @__PURE__ */ React.createElement("li", {
+    onClick: () => handleSelect(item),
+    style: {
+      padding: "8px",
+      cursor: "pointer",
+      "background-color": selectedIndex() === i() ? "#eee" : "#fff"
+    },
+    onMouseEnter: () => setSelectedIndex(i())
+  }, item)))));
+};
+
 // src/components/SearchWebsites.tsx
 function SearchWebsites() {
   const [query, setQuery] = createSignal("");
   const [results, setResults] = createSignal([]);
+  const [showSuggestions, setShowSuggestions] = createSignal(false);
   let timeout;
   createEffect(() => {
     const q = query().trim().toLowerCase();
-    if (timeout) {
-      clearTimeout(timeout);
-    }
+    if (timeout) clearTimeout(timeout);
     if (!q) {
       setResults([]);
+      setShowSuggestions(false);
       return;
     }
     timeout = setTimeout(async () => {
       const res = await fetch("/searchWebsites");
       if (res.ok) {
         const sites = await res.json();
-        setResults(sites.filter((site) => site.toLowerCase().includes(q)));
+        const filtered = sites.filter((site) => site.toLowerCase().includes(q));
+        console.debug(`sites is:`, sites);
+        setResults(filtered);
+        setShowSuggestions(filtered.length > 0);
       }
     }, 200);
   });
+  function handleSuggestionClick(site) {
+    setQuery(site);
+    setShowSuggestions(false);
+  }
+  function handleBlur() {
+    setTimeout(() => setShowSuggestions(false), 100);
+  }
   return /* @__PURE__ */ React.createElement("div", {
     style: {
       display: "flex",
@@ -1439,34 +1715,17 @@ function SearchWebsites() {
       alignItems: "center",
       margin: "2rem auto",
       width: "100%",
-      maxWidth: "400px"
+      maxWidth: "400px",
+      position: "relative"
     }
-  }, /* @__PURE__ */ React.createElement("input", {
-    type: "text",
-    placeholder: "Search websites...",
-    value: query(),
-    onInput: (e) => setQuery(e.currentTarget.value),
-    style: {
-      padding: "0.5rem",
-      width: "100%",
-      fontSize: "1rem",
-      borderRadius: "4px",
-      border: "1px solid #ccc",
-      marginBottom: "1rem"
+  }, /* @__PURE__ */ React.createElement(AutocompleteSearch, {
+    items: results,
+    placeholder: "Type a website...",
+    onInput: (e) => {
+      setQuery(e.currentTarget.value);
+      setShowSuggestions(true);
     }
-  }), /* @__PURE__ */ React.createElement("ul", {
-    style: {
-      width: "100%",
-      listStyle: "none",
-      padding: 0
-    }
-  }, results().map((site) => /* @__PURE__ */ React.createElement("li", {
-    style: {
-      padding: "0.5rem",
-      borderBottom: "1px solid #eee",
-      textAlign: "left"
-    }
-  }, site))));
+  }));
 }
 
 // src/App.tsx

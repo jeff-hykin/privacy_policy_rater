@@ -1,27 +1,46 @@
-import { createSignal, createEffect } from "https://esm.sh/solid-js@1.9.9?dev"
+import { createSignal, createEffect, Show, For } from "https://esm.sh/solid-js@1.9.9?dev"
+import { AutocompleteSearch } from "./AutocompleteSearch.tsx"
+
+const items = ["Apple", "Banana", "Orange", "Grape", "Pineapple", "Mango", "Strawberry", "Blueberry", "Watermelon"]
 
 export function SearchWebsites() {
     const [query, setQuery] = createSignal("")
     const [results, setResults] = createSignal<string[]>([])
+    const [showSuggestions, setShowSuggestions] = createSignal(false)
     let timeout: number | undefined
+    
 
+    // Fetch and filter website names as user types
     createEffect(() => {
         const q = query().trim().toLowerCase()
-        if (timeout) {
-            clearTimeout(timeout)
-        }
+        if (timeout) clearTimeout(timeout)
         if (!q) {
             setResults([])
+            setShowSuggestions(false)
             return
         }
         timeout = setTimeout(async () => {
             const res = await fetch("/searchWebsites")
             if (res.ok) {
                 const sites: string[] = await res.json()
-                setResults(sites.filter((site) => site.toLowerCase().includes(q)))
+                const filtered = sites.filter((site) => site.toLowerCase().includes(q))
+                console.debug(`sites is:`, sites)
+                setResults(filtered)
+                setShowSuggestions(filtered.length > 0)
             }
-        }, 200) // debounce
+        }, 200)
     })
+
+    // Handle suggestion click
+    function handleSuggestionClick(site: string) {
+        setQuery(site)
+        setShowSuggestions(false)
+    }
+
+    // Hide suggestions when input loses focus (with slight delay for click)
+    function handleBlur() {
+        setTimeout(() => setShowSuggestions(false), 100)
+    }
 
     return (
         <div
@@ -32,35 +51,17 @@ export function SearchWebsites() {
                 margin: "2rem auto",
                 width: "100%",
                 maxWidth: "400px",
+                position: "relative",
             }}
         >
-            <input
-                type="text"
-                placeholder="Search websites..."
-                value={query()}
-                onInput={(e) => setQuery(e.currentTarget.value)}
-                style={{
-                    padding: "0.5rem",
-                    width: "100%",
-                    fontSize: "1rem",
-                    borderRadius: "4px",
-                    border: "1px solid #ccc",
-                    marginBottom: "1rem",
+            <AutocompleteSearch 
+                items={results}
+                placeholder="Type a website..."
+                onInput={(e) => {
+                    setQuery(e.currentTarget.value)
+                    setShowSuggestions(true)
                 }}
-            />
-            <ul style={{ width: "100%", listStyle: "none", padding: 0 }}>
-                {results().map((site) => (
-                    <li
-                        style={{
-                            padding: "0.5rem",
-                            borderBottom: "1px solid #eee",
-                            textAlign: "left",
-                        }}
-                    >
-                        {site}
-                    </li>
-                ))}
-            </ul>
+                />
         </div>
     )
 }
