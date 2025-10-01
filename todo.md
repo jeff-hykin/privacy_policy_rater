@@ -1,0 +1,22 @@
+- add search (name or URL of website)
+- Json of names/urls-to-file mappings
+- folders
+    - info.json with latest
+    - folder by date
+    - main.html
+    - rating.yaml
+- If name is missing
+    - curl the URL
+    - pull out the text (DOM.innerText)
+    - autorate
+        - have a list of questions
+        - break up into paragraphs
+        - for each paragraph
+            - for each question
+                - ask if paragraph is relevant
+                - if relevant, ask for clearly good, clearly bad, vague good, vague bad, and unclear
+                - somehow compare/leverage other known good/bad cases
+        - compile the results into a score for each question
+        - create a rating struct as JSON
+
+- get the list of available websites
