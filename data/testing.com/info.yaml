@@ -1,0 +1,20 @@
+{
+    "privacyPolicy": {
+        "latest": {
+            "date": "2023-07-01",
+            "attributes": {
+                "sensitivity": 0,
+            },
+            "scores": {
+                "transparency": 0,
+                "security": 0,
+                "collectedData": 0,
+                "dataUsage": 0,
+                "userRights": 0,
+            },
+        },
+        "2023-07-01": {
+            
+        },
+    },
+}
